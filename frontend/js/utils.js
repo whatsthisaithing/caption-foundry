@@ -162,8 +162,50 @@ const Utils = {
      */
     async confirm(message, title = 'Confirm') {
         return new Promise((resolve) => {
-            // Simple confirm for now - could be replaced with a Bootstrap modal
-            resolve(window.confirm(message));
+            const modalEl = document.getElementById('confirmModal');
+            const modal = new bootstrap.Modal(modalEl);
+            
+            // Set title and message
+            document.getElementById('confirmModalTitle').textContent = title;
+            document.getElementById('confirmModalBody').textContent = message;
+            
+            // Remove any existing event listeners by cloning buttons
+            const confirmBtn = document.getElementById('confirmModalConfirm');
+            const cancelBtn = document.getElementById('confirmModalCancel');
+            const newConfirmBtn = confirmBtn.cloneNode(true);
+            const newCancelBtn = cancelBtn.cloneNode(true);
+            confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
+            cancelBtn.parentNode.replaceChild(newCancelBtn, cancelBtn);
+            
+            // Add new event listeners
+            newConfirmBtn.addEventListener('click', () => {
+                modal.hide();
+                resolve(true);
+            });
+            
+            newCancelBtn.addEventListener('click', () => {
+                modal.hide();
+                resolve(false);
+            });
+            
+            // Handle modal close (X button or backdrop click)
+            const handleHidden = () => {
+                modalEl.removeEventListener('hidden.bs.modal', handleHidden);
+                resolve(false);
+            };
+            modalEl.addEventListener('hidden.bs.modal', handleHidden);
+            
+            modal.show();
+        });
+    },
+    
+    /**
+     * Show a prompt dialog
+     */
+    async prompt(message, defaultValue = '') {
+        return new Promise((resolve) => {
+            // Simple prompt for now - could be replaced with a Bootstrap modal
+            resolve(window.prompt(message, defaultValue));
         });
     },
     

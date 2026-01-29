@@ -191,6 +191,14 @@ const API = {
         return this.request(`/datasets/${datasetId}`, { method: 'DELETE' });
     },
     
+    async cloneDataset(datasetId, newName = null, includeCaptions = false) {
+        let url = `/datasets/${datasetId}/clone?include_captions=${includeCaptions}`;
+        if (newName) {
+            url += `&new_name=${encodeURIComponent(newName)}`;
+        }
+        return this.request(url, { method: 'POST' });
+    },
+    
     async getDatasetStats(datasetId) {
         return this.request(`/datasets/${datasetId}/stats`);
     },
@@ -226,26 +234,26 @@ const API = {
     // ============ Caption Endpoints ============
     
     async getCaptionSet(captionSetId) {
-        return this.request(`/captions/sets/${captionSetId}`);
+        return this.request(`/caption-sets/${captionSetId}`);
     },
     
     async updateCaptionSet(captionSetId, update) {
-        return this.request(`/captions/sets/${captionSetId}`, {
+        return this.request(`/caption-sets/${captionSetId}`, {
             method: 'PATCH',
             body: update
         });
     },
     
     async deleteCaptionSet(captionSetId) {
-        return this.request(`/captions/sets/${captionSetId}`, { method: 'DELETE' });
+        return this.request(`/caption-sets/${captionSetId}`, { method: 'DELETE' });
     },
     
     async listCaptions(captionSetId, page = 1, pageSize = 50) {
-        return this.request(`/captions/sets/${captionSetId}/captions?page=${page}&page_size=${pageSize}`);
+        return this.request(`/caption-sets/${captionSetId}/captions?page=${page}&page_size=${pageSize}`);
     },
     
     async createOrUpdateCaption(captionSetId, fileId, text, source = 'manual') {
-        return this.request(`/captions/sets/${captionSetId}/captions`, {
+        return this.request(`/caption-sets/${captionSetId}/captions`, {
             method: 'POST',
             body: { file_id: fileId, text, source }
         });
@@ -263,7 +271,7 @@ const API = {
     },
     
     async getCaptionForFile(captionSetId, fileId) {
-        return this.request(`/captions/sets/${captionSetId}/files/${fileId}`);
+        return this.request(`/caption-sets/${captionSetId}/files/${fileId}`);
     },
     
     // ============ Vision Endpoints ============

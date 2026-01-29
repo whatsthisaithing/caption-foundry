@@ -247,6 +247,7 @@ class VisionService:
             caption_set_id=caption_set_id,
             vision_model=model,
             vision_backend=backend,
+            overwrite_existing=overwrite_existing,
             status="pending",
             total_files=total_files
         )
@@ -333,26 +334,33 @@ class VisionService:
             # Get file IDs to process (just the IDs, not full objects)
             from ..models import DatasetFile
             
-            # Count existing captions to sync completed_files counter (important for resume)
-            existing_caption_count = self.db.query(Caption).filter(
-                Caption.caption_set_id == caption_set_id
-            ).count()
-            
-            # Update job's completed count to match actual captions (handles resume)
+            # Update job's completed count (handles resume)
             job = self.db.query(CaptionJob).filter(CaptionJob.id == job_id).first()
             if job:
-                job.completed_files = existing_caption_count
+                # When overwriting, completed_files tracks files processed, not captions created
+                # When not overwriting, it tracks captions created (already existing ones)
+                if not job.overwrite_existing:
+                    existing_caption_count = self.db.query(Caption).filter(
+                        Caption.caption_set_id == caption_set_id
+                    ).count()
+                    job.completed_files = existing_caption_count
+                # If overwriting, keep completed_files as-is (tracks actual processing)
                 self.db.commit()
             
-            existing_caption_file_ids = self.db.query(Caption.file_id).filter(
-                Caption.caption_set_id == caption_set_id
-            ).subquery()
-            
-            file_ids_to_process = self.db.query(DatasetFile.file_id).filter(
+            # Build query for files to process
+            query = self.db.query(DatasetFile.file_id).filter(
                 DatasetFile.dataset_id == cs_dataset_id,
-                DatasetFile.excluded == False,
-                ~DatasetFile.file_id.in_(existing_caption_file_ids)
-            ).all()
+                DatasetFile.excluded == False
+            )
+            
+            # Only skip existing captions if overwrite_existing is False
+            if not job.overwrite_existing:
+                existing_caption_file_ids = self.db.query(Caption.file_id).filter(
+                    Caption.caption_set_id == caption_set_id
+                ).subquery()
+                query = query.filter(~DatasetFile.file_id.in_(existing_caption_file_ids))
+            
+            file_ids_to_process = query.all()
             
             # Extract just the IDs as a list
             file_ids = [f[0] for f in file_ids_to_process]
@@ -398,17 +406,31 @@ class VisionService:
                     if not job:
                         break
                     
-                    # Save caption
-                    caption = Caption(
-                        caption_set_id=job.caption_set_id,
-                        file_id=file_id,
-                        text=result.caption,
-                        source="generated",
-                        vision_model=job.vision_model,
-                        quality_score=result.quality_score,
-                        quality_flags=json.dumps(result.quality_flags) if result.quality_flags else None
-                    )
-                    self.db.add(caption)
+                    # Save or update caption
+                    existing_caption = self.db.query(Caption).filter(
+                        Caption.caption_set_id == job.caption_set_id,
+                        Caption.file_id == file_id
+                    ).first()
+                    
+                    if existing_caption:
+                        # Update existing caption
+                        existing_caption.text = result.caption
+                        existing_caption.source = "generated"
+                        existing_caption.vision_model = job.vision_model
+                        existing_caption.quality_score = result.quality_score
+                        existing_caption.quality_flags = json.dumps(result.quality_flags) if result.quality_flags else None
+                    else:
+                        # Create new caption
+                        caption = Caption(
+                            caption_set_id=job.caption_set_id,
+                            file_id=file_id,
+                            text=result.caption,
+                            source="generated",
+                            vision_model=job.vision_model,
+                            quality_score=result.quality_score,
+                            quality_flags=json.dumps(result.quality_flags) if result.quality_flags else None
+                        )
+                        self.db.add(caption)
                     
                     # Update quality score on dataset file
                     if result.quality_score:
@@ -420,8 +442,9 @@ class VisionService:
                             dataset_file.quality_score = result.quality_score
                             dataset_file.quality_flags = json.dumps(result.quality_flags) if result.quality_flags else None
                     
+                    # Increment completed counter (tracks files processed, regardless of new/update)
                     job.completed_files += 1
-                    logger.debug(f"Caption job {job_id}: completed {job.completed_files}/{len(file_ids)} files")
+                    logger.debug(f"Caption job {job_id}: processed file, completed {job.completed_files}/{job.total_files} files")
                     
                 except Exception as e:
                     logger.error(f"Failed to caption file {file_id}: {e}")

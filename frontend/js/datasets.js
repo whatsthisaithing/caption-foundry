@@ -240,8 +240,28 @@ Include: subject, gender, pose/action, clothing details, hair color/style, eye c
         // Edit dataset button
         document.getElementById('editDatasetBtn').addEventListener('click', () => this.showEditDataset());
         
+        // Clone dataset button
+        document.getElementById('cloneDatasetBtn').addEventListener('click', () => this.cloneDataset());
+        
+        // Confirm clone dataset
+        document.getElementById('confirmCloneDataset')?.addEventListener('click', () => this.confirmCloneDataset());
+        
+        // Prevent form submission and handle Enter key for clone modal
+        document.getElementById('cloneDatasetForm')?.addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.confirmCloneDataset();
+        });
+        
         // Confirm edit dataset
         document.getElementById('confirmEditDataset')?.addEventListener('click', () => this.saveDataset());
+        
+        // Auto-focus clone dataset name when modal opens
+        const cloneDatasetModal = document.getElementById('cloneDatasetModal');
+        if (cloneDatasetModal) {
+            cloneDatasetModal.addEventListener('shown.bs.modal', () => {
+                document.getElementById('cloneDatasetName')?.focus();
+            });
+        }
         
         // Export dataset button
         document.getElementById('exportDatasetBtn').addEventListener('click', () => this.showExportDialog());
@@ -420,6 +440,7 @@ Include: subject, gender, pose/action, clothing details, hair color/style, eye c
         
         // Enable buttons
         document.getElementById('editDatasetBtn').disabled = false;
+        document.getElementById('cloneDatasetBtn').disabled = false;
         document.getElementById('exportDatasetBtn').disabled = false;
         document.getElementById('createCaptionSetBtn').disabled = false;
         document.getElementById('addFromFolderBtn').disabled = false;
@@ -661,6 +682,9 @@ Include: subject, gender, pose/action, clothing details, hair color/style, eye c
                         <img src="${API.getThumbnailUrl(df.file_id)}" alt="${Utils.escapeHtml(filename)}" loading="lazy">
                         ${hasCaption ? '<span class="badge bg-success caption-badge"><i class="bi bi-chat-quote-fill"></i></span>' : ''}
                         ${qualityBadgeHtml}
+                        <button class="btn btn-sm btn-danger remove-from-dataset-btn" title="Remove from dataset" data-file-id="${df.file_id}">
+                            <i class="bi bi-x-lg"></i>
+                        </button>
                         <div class="image-overlay">
                             <span>${Utils.escapeHtml(Utils.truncate(filename, 20))}</span>
                         </div>
@@ -681,6 +705,20 @@ Include: subject, gender, pose/action, clothing details, hair color/style, eye c
             const newCards = grid.querySelectorAll('.image-card:not([data-bound])');
             newCards.forEach(card => {
                 card.dataset.bound = 'true';
+                
+                // Remove button handler
+                const removeBtn = card.querySelector('.remove-from-dataset-btn');
+                if (removeBtn) {
+                    removeBtn.addEventListener('click', async (e) => {
+                        e.stopPropagation(); // Don't trigger card click
+                        const fileId = removeBtn.dataset.fileId;
+                        if (await Utils.confirm('Remove this image from the dataset?')) {
+                            await this.removeImageFromDataset(fileId);
+                        }
+                    });
+                }
+                
+                // Card click for caption editor
                 card.addEventListener('click', () => {
                     this.showCaptionEditor(card.dataset.fileId);
                 });
@@ -1082,6 +1120,84 @@ Include: subject, gender, pose/action, clothing details, hair color/style, eye c
             
         } catch (error) {
             Utils.showToast('Failed to delete dataset: ' + error.message, 'error');
+        }
+    },
+    
+    /**
+     * Clone a dataset
+     */
+    async cloneDataset() {
+        if (!this.currentDatasetId) {
+            Utils.showToast('Please select a dataset to clone', 'warning');
+            return;
+        }
+        
+        // Get current dataset info for default name
+        const currentDataset = await API.getDataset(this.currentDatasetId);
+        const defaultName = `${currentDataset.name} (Copy)`;
+        
+        // Set default value and show modal
+        document.getElementById('cloneDatasetName').value = defaultName;
+        document.getElementById('cloneIncludeCaptions').checked = false;
+        
+        const modal = new bootstrap.Modal(document.getElementById('cloneDatasetModal'));
+        modal.show();
+    },
+    
+    /**
+     * Confirm clone dataset (called from modal)
+     */
+    async confirmCloneDataset() {
+        const newName = document.getElementById('cloneDatasetName').value.trim();
+        if (!newName) {
+            Utils.showToast('Please enter a dataset name', 'warning');
+            return;
+        }
+        
+        const includeCaptions = document.getElementById('cloneIncludeCaptions').checked;
+        
+        try {
+            const cloned = await API.cloneDataset(this.currentDatasetId, newName, includeCaptions);
+            Utils.showToast(`Dataset cloned: ${cloned.name}`, 'success');
+            
+            // Hide modal
+            bootstrap.Modal.getInstance(document.getElementById('cloneDatasetModal')).hide();
+            
+            // Refresh and select cloned dataset
+            await this.loadDatasets();
+            this.selectDataset(cloned.id);
+        } catch (error) {
+            Utils.showToast('Failed to clone dataset: ' + error.message, 'error');
+        }
+    },
+    
+    /**
+     * Remove an image from the current dataset
+     */
+    async removeImageFromDataset(fileId) {
+        if (!this.currentDatasetId) return;
+        
+        try {
+            await API.removeFileFromDataset(this.currentDatasetId, fileId);
+            Utils.showToast('Image removed from dataset', 'success');
+            
+            // Remove from UI
+            const card = document.querySelector(`.image-card[data-file-id="${fileId}"]`);
+            if (card) {
+                card.remove();
+            }
+            
+            // Remove from current files list
+            this.currentDatasetFiles = this.currentDatasetFiles.filter(id => id !== fileId);
+            
+            // Reload stats to update counts
+            await this.loadDatasetDetails(this.currentDatasetId);
+            
+            // Refresh dataset list to update count in sidebar
+            await this.loadDatasets();
+            
+        } catch (error) {
+            Utils.showToast('Failed to remove image: ' + error.message, 'error');
         }
     },
     

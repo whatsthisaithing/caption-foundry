@@ -228,6 +228,7 @@ class CaptionJob(Base):
     # Job configuration
     vision_model = Column(String(100), nullable=False)
     vision_backend = Column(String(20), default="ollama")  # ollama or lmstudio
+    overwrite_existing = Column(Boolean, default=False)
     
     # Progress tracking
     status = Column(String(20), default="pending")  # pending, running, paused, completed, failed, cancelled

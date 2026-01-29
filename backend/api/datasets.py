@@ -77,6 +77,23 @@ def delete_dataset(dataset_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found")
 
 
+@router.post("/{dataset_id}/clone", response_model=DatasetResponse, status_code=status.HTTP_201_CREATED)
+def clone_dataset(
+    dataset_id: str,
+    new_name: str = None,
+    include_captions: bool = False,
+    db: Session = Depends(get_db)
+):
+    """Clone a dataset with all its files. Optionally include caption sets and captions."""
+    logger.info(f"Cloning dataset {dataset_id}: new_name='{new_name}', include_captions={include_captions}")
+    service = DatasetService(db)
+    cloned = service.clone_dataset(dataset_id, new_name, include_captions)
+    if not cloned:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found")
+    logger.info(f"Dataset cloned successfully: id={cloned.id}")
+    return cloned
+
+
 @router.get("/{dataset_id}/files", response_model=List[DatasetFileResponse])
 def list_dataset_files(
     dataset_id: str,

@@ -196,6 +196,21 @@ kbd {
     opacity: 0.9;
 }
 
+.image-card .remove-from-dataset-btn {
+    position: absolute;
+    top: 0.25rem;
+    left: 0.25rem;
+    padding: 0.15rem 0.35rem;
+    font-size: 0.7rem;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    z-index: 2;
+}
+
+.image-card:hover .remove-from-dataset-btn {
+    opacity: 1;
+}
+
 .image-card .quality-indicator {
     position: absolute;
     bottom: 0.5rem;

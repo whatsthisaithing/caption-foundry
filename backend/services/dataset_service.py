@@ -85,6 +85,92 @@ class DatasetService:
         logger.info(f"Deleted dataset: {dataset.name}")
         return True
     
+    def clone_dataset(self, dataset_id: str, new_name: Optional[str] = None, include_captions: bool = False) -> Optional[Dataset]:
+        """Clone a dataset with all its files. Optionally include caption sets and captions."""
+        original = self.get_dataset(dataset_id)
+        if not original:
+            return None
+        
+        # Generate new name and slug
+        if not new_name:
+            new_name = f"{original.name} (Copy)"
+        
+        slug = self._generate_slug(new_name)
+        
+        # Ensure unique slug
+        base_slug = slug
+        counter = 1
+        while self.db.query(Dataset).filter(Dataset.slug == slug).first():
+            slug = f"{base_slug}_{counter}"
+            counter += 1
+        
+        # Create new dataset
+        cloned_dataset = Dataset(
+            name=new_name,
+            slug=slug,
+            description=f"Cloned from: {original.name}\n\n{original.description or ''}"
+        )
+        self.db.add(cloned_dataset)
+        self.db.flush()  # Get the ID without committing
+        
+        # Copy all dataset files
+        original_files = self.db.query(DatasetFile).filter(
+            DatasetFile.dataset_id == dataset_id
+        ).all()
+        
+        for original_file in original_files:
+            cloned_file = DatasetFile(
+                dataset_id=cloned_dataset.id,
+                file_id=original_file.file_id,
+                order_index=original_file.order_index,
+                excluded=original_file.excluded
+            )
+            self.db.add(cloned_file)
+        
+        cloned_dataset.file_count = len(original_files)
+        
+        # Optionally copy caption sets and captions
+        if include_captions:
+            original_caption_sets = self.db.query(CaptionSet).filter(
+                CaptionSet.dataset_id == dataset_id
+            ).all()
+            
+            for original_cs in original_caption_sets:
+                cloned_cs = CaptionSet(
+                    dataset_id=cloned_dataset.id,
+                    name=original_cs.name,
+                    style=original_cs.style,
+                    max_length=original_cs.max_length,
+                    custom_prompt=original_cs.custom_prompt,
+                    trigger_phrase=original_cs.trigger_phrase
+                )
+                self.db.add(cloned_cs)
+                self.db.flush()  # Get the caption set ID
+                
+                # Copy captions for this caption set
+                original_captions = self.db.query(Caption).filter(
+                    Caption.caption_set_id == original_cs.id
+                ).all()
+                
+                for original_caption in original_captions:
+                    cloned_caption = Caption(
+                        caption_set_id=cloned_cs.id,
+                        file_id=original_caption.file_id,
+                        text=original_caption.text,
+                        source=original_caption.source,
+                        vision_model=original_caption.vision_model,
+                        quality_score=original_caption.quality_score
+                    )
+                    self.db.add(cloned_caption)
+                
+                cloned_cs.caption_count = len(original_captions)
+        
+        self.db.commit()
+        self.db.refresh(cloned_dataset)
+        
+        logger.info(f"Cloned dataset '{original.name}' -> '{new_name}' (captions: {include_captions})")
+        return cloned_dataset
+    
     def add_files(self, dataset_id: str, file_ids: List[str]) -> int:
         """Add files to a dataset. Returns count of files added."""
         dataset = self.get_dataset(dataset_id)

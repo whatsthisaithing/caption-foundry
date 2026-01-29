@@ -117,13 +117,13 @@ function startBackend() {
             }
         });
         
-        // Timeout after 30 seconds
+        // Timeout after 45 seconds (increased to allow for database migrations on first run)
         setTimeout(() => {
             if (!started) {
                 console.log('[Electron] Backend startup timeout - assuming it\'s running');
                 resolve();
             }
-        }, 30000);
+        }, 45000);
     });
 }
 

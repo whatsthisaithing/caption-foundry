@@ -27,6 +27,7 @@ The entire workflow runs locally on your machine - no cloud services, no API cos
 - **Manual Editing** - Click any image to edit its caption with real-time preview
 - **Smart Export** - Export with sequential numbering, format conversion, metadata stripping
 - **Desktop App** - Native file dialogs and true drag-and-drop via Electron
+- **100% Non-Destructive** - Your original images and captions are never modified, moved, or deleted
 
 ## Requirements
 
@@ -77,6 +78,19 @@ This launches:
 2. The Electron desktop application (connects to backend)
 
 The app window will open automatically once the backend is ready.
+
+## Non-Destructive Design
+
+**CaptionForge never modifies your original files.** All operations are 100% safe and non-destructive:
+
+- ✅ **Folder tracking** only reads file metadata - never writes to your images or captions
+- ✅ **Thumbnails** are generated in `data/thumbnails/` - originals untouched
+- ✅ **Captions** are stored in SQLite database - paired caption files (.txt) are only read, never modified
+- ✅ **Exports** copy files to the destination - source files remain pristine
+- ✅ **Removing images** from datasets only affects the database - files stay in place
+- ✅ **Deleting folders/datasets** removes tracking records - your actual files are safe
+
+Feel confident experimenting - your source files are always protected.
 
 ## Basic Workflow
 
