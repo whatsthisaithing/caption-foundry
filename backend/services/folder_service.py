@@ -132,8 +132,11 @@ class FolderService:
         thumbnails_generated = 0
         captions_imported = 0
         
-        # Track existing files to detect removals
-        existing_files = {f.relative_path: f for f in folder.files}
+        # Track existing files to detect removals and re-additions
+        # Get ALL files for this folder, including ones marked as not existing
+        all_existing_files = {f.relative_path: f for f in self.db.query(TrackedFile).filter(
+            TrackedFile.folder_id == folder.id
+        ).all()}
         seen_paths = set()
         
         # Scan for files
@@ -162,10 +165,16 @@ class FolderService:
             relative_path = str(file_path.relative_to(folder_path))
             seen_paths.add(relative_path)
             
-            # Check if file exists in database
-            existing_file = existing_files.get(relative_path)
+            # Check if file exists in database (including previously removed files)
+            existing_file = all_existing_files.get(relative_path)
             
             if existing_file:
+                # If file was previously marked as not existing, restore it
+                if not existing_file.exists:
+                    existing_file.exists = True
+                    files_added += 1  # Count as added since it's back
+                    logger.info(f"Restored previously removed file: {relative_path}")
+                
                 # Check if file was modified
                 file_modified = datetime.fromtimestamp(file_path.stat().st_mtime)
                 if existing_file.file_modified and file_modified > existing_file.file_modified:
@@ -174,6 +183,10 @@ class FolderService:
                     files_updated += 1
                     
                     # Regenerate thumbnail
+                    if self._generate_thumbnail(existing_file, file_path):
+                        thumbnails_generated += 1
+                elif not existing_file.exists:
+                    # File was restored, regenerate thumbnail if needed
                     if self._generate_thumbnail(existing_file, file_path):
                         thumbnails_generated += 1
             else:
@@ -189,10 +202,10 @@ class FolderService:
                 if self._import_paired_caption(new_file, file_path):
                     captions_imported += 1
         
-        # Mark missing files
+        # Mark missing files (only check files that were previously existing)
         files_removed = 0
-        for relative_path, tracked_file in existing_files.items():
-            if relative_path not in seen_paths:
+        for relative_path, tracked_file in all_existing_files.items():
+            if relative_path not in seen_paths and tracked_file.exists:
                 tracked_file.exists = False
                 files_removed += 1
         
@@ -228,13 +241,20 @@ class FolderService:
         self, 
         folder_id: str, 
         page: int = 1, 
-        page_size: int = 50
+        page_size: int = 50,
+        filter: str = "all"
     ) -> Tuple[List[TrackedFile], int]:
-        """List files in a folder with pagination."""
+        """List files in a folder with pagination and optional caption filter."""
         query = self.db.query(TrackedFile).filter(
             TrackedFile.folder_id == folder_id,
             TrackedFile.exists == True
         )
+        
+        # Apply caption filter
+        if filter == "captioned":
+            query = query.filter(TrackedFile.imported_caption.isnot(None))
+        elif filter == "uncaptioned":
+            query = query.filter(TrackedFile.imported_caption.is_(None))
         
         total = query.count()
         files = query.order_by(TrackedFile.filename).offset(

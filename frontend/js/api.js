@@ -120,6 +120,13 @@ const API = {
         return this.request(`/folders/${folderId}`);
     },
     
+    async updateFolder(folderId, updates) {
+        return this.request(`/folders/${folderId}`, {
+            method: 'PUT',
+            body: updates
+        });
+    },
+    
     async scanFolder(folderId) {
         return this.request(`/folders/${folderId}/scan`, { method: 'POST' });
     },

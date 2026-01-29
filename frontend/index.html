@@ -289,6 +289,44 @@
         </div>
     </div>
 
+    <!-- Modal: Edit Folder -->
+    <div class="modal fade" id="editFolderModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content bg-dark border-secondary">
+                <div class="modal-header border-secondary">
+                    <h5 class="modal-title"><i class="bi bi-pencil me-2"></i>Edit Folder</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="editFolderForm">
+                        <input type="hidden" id="editFolderId">
+                        <div class="mb-3">
+                            <label class="form-label">Folder Path</label>
+                            <input type="text" class="form-control" id="editFolderPath" disabled>
+                            <small class="text-muted">Path cannot be changed after adding</small>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Display Name</label>
+                            <input type="text" class="form-control" id="editFolderName" placeholder="Custom display name">
+                            <small class="text-muted">Leave empty to use folder name from path</small>
+                        </div>
+                        <div class="form-check mb-3">
+                            <input type="checkbox" class="form-check-input" id="editFolderEnabled" checked>
+                            <label class="form-check-label" for="editFolderEnabled">Track this folder</label>
+                            <small class="text-muted d-block">Uncheck to temporarily stop tracking without removing the folder</small>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer border-secondary">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="confirmEditFolder">
+                        <i class="bi bi-check-lg me-1"></i>Save Changes
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Modal: Add Folder -->
     <div class="modal fade" id="addFolderModal" tabindex="-1">
         <div class="modal-dialog">
@@ -960,8 +998,8 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     
     <!-- Application Scripts -->
-    <script src="js/api.js"></script>
     <script src="js/utils.js"></script>
+    <script src="js/api.js"></script>
     <script src="js/folders.js"></script>
     <script src="js/datasets.js"></script>
     <script src="js/jobs.js"></script>

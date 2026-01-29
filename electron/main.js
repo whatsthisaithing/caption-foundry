@@ -176,6 +176,16 @@ function createWindow() {
         }
     });
     
+    // Add keyboard shortcut to toggle DevTools (F12 or Ctrl+Shift+I)
+    mainWindow.webContents.on('before-input-event', (event, input) => {
+        if (input.type === 'keyDown') {
+            if (input.key === 'F12' || (input.control && input.shift && input.key === 'I')) {
+                mainWindow.webContents.toggleDevTools();
+                event.preventDefault();
+            }
+        }
+    });
+    
     mainWindow.on('closed', () => {
         mainWindow = null;
     });

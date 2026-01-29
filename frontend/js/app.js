@@ -247,6 +247,16 @@ const App = {
                 break;
             case 'datasets':
                 await Datasets.loadDatasets();
+                // If dataset images need refresh (files were added from folders)
+                if (Datasets.needsRefresh && Datasets.currentDatasetId) {
+                    // Refresh the current dataset's images AND stats
+                    await Promise.all([
+                        Datasets.loadDatasetDetails(Datasets.currentDatasetId),
+                        Datasets.loadDatasetImages(Datasets.currentDatasetId, 1, true)
+                    ]);
+                    Datasets.needsRefresh = false;
+                    Datasets.lastModifiedDatasetId = null;
+                }
                 break;
             case 'jobs':
                 await Jobs.loadJobs();

@@ -100,15 +100,16 @@ def list_folder_files(
     folder_id: str,
     page: int = 1,
     page_size: int = 50,
+    filter: str = "all",
     db: Session = Depends(get_db)
 ):
-    """List files in a folder with pagination."""
+    """List files in a folder with pagination and optional caption filter."""
     service = FolderService(db)
     folder = service.get_folder(folder_id)
     if not folder:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Folder not found")
     
-    files, total = service.list_folder_files(folder_id, page, page_size)
+    files, total = service.list_folder_files(folder_id, page, page_size, filter)
     return FileListResponse(
         files=files,
         total=total,

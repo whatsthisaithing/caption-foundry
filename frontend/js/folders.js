@@ -9,6 +9,11 @@ const Folders = {
     pageSize: 50,
     selectedFiles: new Set(),
     files: [],
+    totalFiles: 0,
+    isLoading: false,
+    hasMoreFiles: true,
+    currentFilter: 'all',
+    allFilesSelected: false,  // Track if "select all" was clicked
     
     /**
      * Check if running in Electron desktop mode
@@ -222,6 +227,9 @@ const Folders = {
         // Confirm add folder
         document.getElementById('confirmAddFolder').addEventListener('click', () => this.addFolder());
         
+        // Confirm edit folder
+        document.getElementById('confirmEditFolder')?.addEventListener('click', () => this.saveEditFolder());
+        
         // Paste path button
         document.getElementById('pastePathBtn')?.addEventListener('click', async () => {
             try {
@@ -246,7 +254,9 @@ const Folders = {
         
         // File filter
         document.getElementById('fileFilterType').addEventListener('change', (e) => {
-            this.loadFolderFiles(this.currentFolderId, 1, e.target.value);
+            if (this.currentFolderId) {
+                this.loadFolderFiles(this.currentFolderId, 1, e.target.value, true);
+            }
         });
         
         // Thumbnail size slider
@@ -292,9 +302,12 @@ const Folders = {
                     <div class="d-flex justify-content-between align-items-center">
                         <div>
                             <i class="bi bi-folder me-2"></i>
-                            <span>${Utils.escapeHtml(folder.name || folder.path)}</span>
+                            <span>${Utils.escapeHtml(folder.name || folder.path.split(/[\\/]/).pop())}</span>
                         </div>
                         <div class="btn-group btn-group-sm">
+                            <button class="btn btn-outline-light btn-sm edit-btn" title="Edit">
+                                <i class="bi bi-pencil"></i>
+                            </button>
                             <button class="btn btn-outline-light btn-sm rescan-btn" title="Rescan">
                                 <i class="bi bi-arrow-clockwise"></i>
                             </button>
@@ -316,6 +329,13 @@ const Folders = {
                     if (e.target.closest('.btn')) return;
                     e.preventDefault();
                     this.selectFolder(el.dataset.folderId);
+                });
+                
+                // Edit button
+                el.querySelector('.edit-btn').addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    this.showEditFolderModal(el.dataset.folderId);
                 });
                 
                 // Rescan button
@@ -381,6 +401,10 @@ const Folders = {
     async selectFolder(folderId) {
         this.currentFolderId = folderId;
         this.selectedFiles.clear();
+        this.allFilesSelected = false;
+        this.currentPage = 1;
+        this.hasMoreFiles = true;
+        this.files = [];
         this.updateSelectionUI();
         
         // Update active state in list
@@ -388,23 +412,35 @@ const Folders = {
             el.classList.toggle('active', el.dataset.folderId === folderId);
         });
         
-        await this.loadFolderFiles(folderId);
+        const filter = document.getElementById('fileFilterType').value;
+        await this.loadFolderFiles(folderId, 1, filter, true);
     },
     
     /**
-     * Load files for a folder
+     * Load files for a folder with infinite scroll support
      */
-    async loadFolderFiles(folderId, page = 1, filter = 'all') {
-        const grid = document.getElementById('imageGrid');
-        grid.innerHTML = Utils.loadingSpinner();
+    async loadFolderFiles(folderId, page = 1, filter = 'all', reset = false) {
+        if (this.isLoading) return;
         
+        const grid = document.getElementById('imageGrid');
+        
+        // Show initial loading spinner on first load
+        if (reset) {
+            grid.innerHTML = Utils.loadingSpinner();
+            this.files = [];
+            this.currentPage = 1;
+            this.hasMoreFiles = true;
+            this.currentFilter = filter;
+        }
+        
+        this.isLoading = true;
         this.currentPage = page;
         
         try {
             const folder = await API.getFolder(folderId);
             const response = await API.getFolderFiles(folderId, page, this.pageSize, filter);
             
-            this.files = response.files;
+            this.totalFiles = response.total;
             
             // Update header
             document.getElementById('folderTitle').innerHTML = `<i class="bi bi-folder me-2"></i>${Utils.escapeHtml(folder.name || folder.path)}`;
@@ -413,24 +449,83 @@ const Folders = {
             // Enable toolbar buttons
             document.getElementById('selectAllBtn').disabled = false;
             
-            if (this.files.length === 0) {
+            if (response.files.length === 0 && reset) {
                 grid.innerHTML = Utils.emptyState('bi-images', 'No images found', filter !== 'all' ? 'Try changing the filter' : '');
+                this.hasMoreFiles = false;
                 return;
             }
             
-            // Render image grid
-            grid.innerHTML = this.files.map(file => this.renderImageCard(file)).join('');
+            // Append new files to the list
+            this.files.push(...response.files);
+            this.hasMoreFiles = this.files.length < response.total;
             
-            // Bind click events
+            // Render new image cards (append if not reset)
+            const newCardsHtml = response.files.map(file => this.renderImageCard(file)).join('');
+            
+            if (reset) {
+                grid.innerHTML = newCardsHtml;
+            } else {
+                grid.insertAdjacentHTML('beforeend', newCardsHtml);
+            }
+            
+            // Bind click events to new cards only
             this.bindImageCardEvents();
             
-            // Render pagination
-            this.renderPagination(response.total, page);
+            // Setup infinite scroll on first load
+            if (reset) {
+                this.setupInfiniteScroll(grid);
+            }
+            
+            // Remove pagination, add loading indicator if more files available
+            document.getElementById('imagePagination').style.display = 'none';
+            
+            // Manage loading indicator
+            let indicator = document.getElementById('loadMoreIndicator');
+            if (this.hasMoreFiles) {
+                if (!indicator) {
+                    indicator = document.createElement('div');
+                    indicator.id = 'loadMoreIndicator';
+                    indicator.className = 'text-center text-muted py-2';
+                    indicator.innerHTML = '<small><i class="bi bi-arrow-down-circle"></i> Scroll for more...</small>';
+                    // Insert at the end of the grid
+                    grid.appendChild(indicator);
+                }
+            } else if (indicator) {
+                indicator.remove();
+            }
             
         } catch (error) {
             grid.innerHTML = Utils.emptyState('bi-exclamation-triangle', 'Error loading files', error.message);
             Utils.showToast('Failed to load files: ' + error.message, 'error');
+        } finally {
+            this.isLoading = false;
         }
+    },
+    
+    /**
+     * Setup infinite scroll detection
+     */
+    setupInfiniteScroll(grid) {
+        // Remove any existing scroll listener
+        if (this._scrollHandler) {
+            grid.removeEventListener('scroll', this._scrollHandler);
+        }
+        
+        this._scrollHandler = () => {
+            if (this.isLoading || !this.hasMoreFiles) return;
+            
+            // Check if user scrolled near bottom (within 500px)
+            const scrollTop = grid.scrollTop;
+            const scrollHeight = grid.scrollHeight;
+            const clientHeight = grid.clientHeight;
+            
+            if (scrollTop + clientHeight >= scrollHeight - 500) {
+                // Load next page
+                this.loadFolderFiles(this.currentFolderId, this.currentPage + 1, this.currentFilter, false);
+            }
+        };
+        
+        grid.addEventListener('scroll', this._scrollHandler);
     },
     
     /**
@@ -528,23 +623,47 @@ const Folders = {
     /**
      * Toggle select all
      */
-    toggleSelectAll() {
-        const allSelected = this.selectedFiles.size === this.files.length;
+    async toggleSelectAll() {
+        const isAllSelected = this.allFilesSelected || (this.selectedFiles.size === this.totalFiles);
         
-        document.querySelectorAll('#imageGrid .image-card').forEach(card => {
-            const fileId = card.dataset.fileId;
-            const checkbox = card.querySelector('.select-checkbox');
+        if (isAllSelected) {
+            // Deselect all
+            this.selectedFiles.clear();
+            this.allFilesSelected = false;
             
-            if (allSelected) {
-                this.selectedFiles.delete(fileId);
+            document.querySelectorAll('#imageGrid .image-card').forEach(card => {
                 card.classList.remove('selected');
-                checkbox.checked = false;
+                const checkbox = card.querySelector('.select-checkbox');
+                if (checkbox) checkbox.checked = false;
+            });
+        } else {
+            // Select all - need to fetch all file IDs if we haven't loaded them all
+            if (this.files.length < this.totalFiles) {
+                try {
+                    // Fetch all file IDs from the backend
+                    const filter = this.currentFilter || 'all';
+                    const response = await API.getFolderFiles(this.currentFolderId, 1, this.totalFiles, filter);
+                    
+                    // Add all IDs to selection
+                    this.selectedFiles.clear();
+                    response.files.forEach(file => this.selectedFiles.add(file.id));
+                    this.allFilesSelected = true;
+                } catch (error) {
+                    Utils.showToast('Failed to fetch all files: ' + error.message, 'error');
+                    return;
+                }
             } else {
-                this.selectedFiles.add(fileId);
-                card.classList.add('selected');
-                checkbox.checked = true;
+                // All files are loaded, just select them
+                this.files.forEach(file => this.selectedFiles.add(file.id));
             }
-        });
+            
+            // Update UI for currently visible cards
+            document.querySelectorAll('#imageGrid .image-card').forEach(card => {
+                card.classList.add('selected');
+                const checkbox = card.querySelector('.select-checkbox');
+                if (checkbox) checkbox.checked = true;
+            });
+        }
         
         this.updateSelectionUI();
     },
@@ -562,9 +681,11 @@ const Folders = {
             ? `<i class="bi bi-plus"></i> Add ${count} to Dataset` 
             : '<i class="bi bi-plus"></i> Add to Dataset';
         
-        selectBtn.innerHTML = this.selectedFiles.size === this.files.length && this.files.length > 0
+        // Update select all button text
+        const isAllSelected = this.allFilesSelected || this.selectedFiles.size === this.totalFiles;
+        selectBtn.innerHTML = isAllSelected
             ? '<i class="bi bi-x-lg"></i> Deselect All'
-            : '<i class="bi bi-check2-all"></i> Select All';
+            : `<i class="bi bi-check2-all"></i> Select All${this.totalFiles > 0 ? ' (' + this.totalFiles + ')' : ''}`;
     },
     
     /**
@@ -616,6 +737,10 @@ const Folders = {
             
             // Close modal
             bootstrap.Modal.getInstance(document.getElementById('selectDatasetModal')).hide();
+            
+            // Mark that the dataset needs refresh (will be picked up when switching to datasets view)
+            Datasets.needsRefresh = true;
+            Datasets.lastModifiedDatasetId = datasetId;
             
             // Clear selection
             this.selectedFiles.clear();
@@ -749,22 +874,81 @@ const Folders = {
     },
     
     /**
+     * Show edit folder modal
+     */
+    async showEditFolderModal(folderId) {
+        try {
+            const folder = await API.getFolder(folderId);
+            
+            document.getElementById('editFolderId').value = folder.id;
+            document.getElementById('editFolderPath').value = folder.path;
+            document.getElementById('editFolderName').value = folder.name || '';
+            document.getElementById('editFolderEnabled').checked = folder.enabled !== false;
+            
+            const modal = new bootstrap.Modal(document.getElementById('editFolderModal'));
+            modal.show();
+        } catch (error) {
+            Utils.showToast('Failed to load folder: ' + error.message, 'error');
+        }
+    },
+    
+    /**
+     * Save edited folder
+     */
+    async saveEditFolder() {
+        const folderId = document.getElementById('editFolderId').value;
+        const name = document.getElementById('editFolderName').value.trim() || null;
+        const enabled = document.getElementById('editFolderEnabled').checked;
+        
+        const btn = document.getElementById('confirmEditFolder');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Saving...';
+        
+        try {
+            await API.updateFolder(folderId, { name, enabled });
+            Utils.showToast('Folder updated successfully', 'success');
+            
+            bootstrap.Modal.getInstance(document.getElementById('editFolderModal')).hide();
+            await this.loadFolders();
+            
+        } catch (error) {
+            Utils.showToast('Failed to update folder: ' + error.message, 'error');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Save Changes';
+        }
+    },
+    
+    /**
      * Rescan a folder
      */
     async rescanFolder(folderId) {
-        Utils.showToast('Scanning folder...', 'info');
+        const btn = event.target.closest('.rescan-btn');
+        const originalHTML = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
         
         try {
-            await API.scanFolder(folderId);
-            Utils.showToast('Folder scan complete', 'success');
+            const result = await API.scanFolder(folderId);
+            Utils.showToast(`Scan complete: ${result.files_added} added, ${result.files_updated} updated, ${result.files_removed} removed`, 'success');
+            
+            // Immediately refresh the folder list and files if this folder is selected
             await this.loadFolders();
             
             if (this.currentFolderId === folderId) {
-                await this.loadFolderFiles(folderId);
+                // Update the file count in the header immediately
+                const folder = await API.getFolder(folderId);
+                document.getElementById('fileCount').textContent = `${folder.file_count} files`;
+                
+                // Reload the files
+                await this.loadFolderFiles(folderId, 1, document.getElementById('fileFilterType').value, true);
             }
             
         } catch (error) {
             Utils.showToast('Failed to scan folder: ' + error.message, 'error');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = originalHTML;
         }
     },
     

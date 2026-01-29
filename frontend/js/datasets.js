@@ -7,6 +7,18 @@ const Datasets = {
     currentDatasetId: null,
     currentCaptionSetId: null,
     draggedImageIds: [], // Track dragged images for adding to datasets
+    currentDatasetFiles: [],
+    currentEditingFileId: null,
+    lastGeneratedCaption: null,
+    isLoadingImages: false,
+    hasMoreImages: true,
+    currentImagePage: 1,
+    imagePageSize: 50,
+    totalDatasetFiles: 0,
+    needsRefresh: false,  // Track if dataset images need refresh
+    lastModifiedDatasetId: null,  // Track which dataset was modified
+    imagePageSize: 50,
+    totalDatasetFiles: 0,
     
     // Prompt templates for custom caption style (creative instructions only)
     // System will automatically append quality assessment and JSON output format requirements
@@ -152,6 +164,17 @@ Include: subject, gender, pose/action, clothing details, hair color/style, eye c
             modal.show();
         });
         
+        // Auto-focus dataset name input when modal is shown
+        document.getElementById('createDatasetModal').addEventListener('shown.bs.modal', () => {
+            document.getElementById('datasetName').focus();
+        });
+        
+        // Prevent form submission
+        document.getElementById('createDatasetForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.createDataset();
+        });
+        
         // Confirm create dataset
         document.getElementById('confirmCreateDataset').addEventListener('click', () => this.createDataset());
         
@@ -159,6 +182,17 @@ Include: subject, gender, pose/action, clothing details, hair color/style, eye c
         document.getElementById('createCaptionSetBtn').addEventListener('click', () => {
             const modal = new bootstrap.Modal(document.getElementById('createCaptionSetModal'));
             modal.show();
+        });
+        
+        // Auto-focus caption set name input when modal is shown
+        document.getElementById('createCaptionSetModal').addEventListener('shown.bs.modal', () => {
+            document.getElementById('captionSetName').focus();
+        });
+        
+        // Prevent form submission for caption set
+        document.getElementById('createCaptionSetForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.createCaptionSet();
         });
         
         // Confirm create caption set
@@ -393,7 +427,7 @@ Include: subject, gender, pose/action, clothing details, hair color/style, eye c
         await Promise.all([
             this.loadDatasetDetails(datasetId),
             this.loadCaptionSets(datasetId),
-            this.loadDatasetImages(datasetId)
+            this.loadDatasetImages(datasetId, 1, true)
         ]);
     },
     
@@ -572,22 +606,40 @@ Include: subject, gender, pose/action, clothing details, hair color/style, eye c
     },
     
     /**
-     * Load dataset images
+     * Load dataset images with infinite scroll
      */
-    async loadDatasetImages(datasetId, page = 1) {
+    async loadDatasetImages(datasetId, page = 1, reset = false) {
+        if (this.isLoadingImages && !reset) return;
+        
         const grid = document.getElementById('datasetImageGrid');
-        grid.innerHTML = Utils.loadingSpinner();
+        
+        if (reset) {
+            grid.innerHTML = Utils.loadingSpinner();
+            this.currentDatasetFiles = [];
+            this.currentImagePage = 1;
+            this.hasMoreImages = true;
+        }
+        
+        this.isLoadingImages = true;
+        this.currentImagePage = page;
         
         try {
             // API returns array directly, not {files: [...]}
-            const files = await API.getDatasetFiles(datasetId, page, 50);
+            const files = await API.getDatasetFiles(datasetId, page, this.imagePageSize);
             
             if (!files || files.length === 0) {
-                grid.innerHTML = Utils.emptyState('bi-images', 'No images in dataset', 'Add images from the Folders view');
+                if (reset) {
+                    grid.innerHTML = Utils.emptyState('bi-images', 'No images in dataset', 'Add images from the Folders view');
+                }
+                this.hasMoreImages = false;
                 return;
             }
             
-            grid.innerHTML = files.map(df => {
+            // Assuming we need to check total count somehow - for now, if we get less than pageSize, no more
+            this.hasMoreImages = files.length >= this.imagePageSize;
+            
+            // Build HTML for new cards
+            const newCardsHtml = files.map(df => {
                 // Safety check for nested file object
                 const file = df.file || {};
                 const filename = file.filename || 'Unknown';
@@ -616,24 +668,75 @@ Include: subject, gender, pose/action, clothing details, hair color/style, eye c
                 `;
             }).join('');
             
-            // Store file IDs for navigation
-            this.currentDatasetFiles = files.map(df => df.file_id);
+            if (reset) {
+                grid.innerHTML = newCardsHtml;
+            } else {
+                grid.insertAdjacentHTML('beforeend', newCardsHtml);
+            }
             
-            // Bind click events for caption editor (not folder details)
-            grid.querySelectorAll('.image-card').forEach(card => {
+            // Add file IDs for navigation
+            this.currentDatasetFiles.push(...files.map(df => df.file_id));
+            
+            // Bind click events for caption editor (only to new cards)
+            const newCards = grid.querySelectorAll('.image-card:not([data-bound])');
+            newCards.forEach(card => {
+                card.dataset.bound = 'true';
                 card.addEventListener('click', () => {
                     this.showCaptionEditor(card.dataset.fileId);
                 });
             });
             
+            // Setup infinite scroll on first load
+            if (reset) {
+                this.setupDatasetInfiniteScroll(grid);
+            }
+            
+            // Add/remove loading indicator
+            let indicator = document.getElementById('datasetLoadMoreIndicator');
+            if (this.hasMoreImages) {
+                if (!indicator) {
+                    indicator = document.createElement('div');
+                    indicator.id = 'datasetLoadMoreIndicator';
+                    indicator.className = 'text-center text-muted py-2';
+                    indicator.innerHTML = '<small><i class="bi bi-arrow-down-circle"></i> Scroll for more...</small>';
+                    grid.appendChild(indicator);
+                }
+            } else if (indicator) {
+                indicator.remove();
+            }
+            
         } catch (error) {
             grid.innerHTML = Utils.emptyState('bi-exclamation-triangle', 'Error loading images', error.message);
+        } finally {
+            this.isLoadingImages = false;
         }
     },
     
-    // Track current files for navigation
-    currentDatasetFiles: [],
-    currentEditingFileId: null,
+    /**
+     * Setup infinite scroll for dataset images
+     */
+    setupDatasetInfiniteScroll(grid) {
+        // Remove any existing scroll listener
+        if (this._datasetScrollHandler) {
+            grid.removeEventListener('scroll', this._datasetScrollHandler);
+        }
+        
+        this._datasetScrollHandler = () => {
+            if (this.isLoadingImages || !this.hasMoreImages) return;
+            
+            // Check if user scrolled near bottom (within 500px)
+            const scrollTop = grid.scrollTop;
+            const scrollHeight = grid.scrollHeight;
+            const clientHeight = grid.clientHeight;
+            
+            if (scrollTop + clientHeight >= scrollHeight - 500) {
+                // Load next page
+                this.loadDatasetImages(this.currentDatasetId, this.currentImagePage + 1, false);
+            }
+        };
+        
+        grid.addEventListener('scroll', this._datasetScrollHandler);
+    },
     
     /**
      * Show caption editor for a file in current caption set
