@@ -219,3 +219,7 @@ Apache 2.o - See [LICENSE](LICENSE) file for details.
 
 - [QUICKSTART.md](QUICKSTART.md) - Detailed setup guide with Ollama/LM Studio instructions
 - [API Documentation](http://localhost:8675/docs) - Interactive API reference (when running)
+
+## Wanna be nice?
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/C0C31T80OE)
