@@ -122,6 +122,9 @@ def init_db():
 
 def _run_alembic_migrations():
     """Run Alembic migrations to upgrade database schema."""
+    import io
+    import sys
+    
     try:
         # Lazy import to avoid slowing down module load
         from alembic.config import Config as AlembicConfig
@@ -132,9 +135,9 @@ def _run_alembic_migrations():
         # Suppress Alembic's verbose output BEFORE doing anything
         # This prevents INFO messages from going to stderr
         import logging as alembic_logging
-        alembic_logging.getLogger('alembic.runtime.migration').setLevel(alembic_logging.WARNING)
-        alembic_logging.getLogger('alembic.env').setLevel(alembic_logging.WARNING)
-        alembic_logging.getLogger('alembic').setLevel(alembic_logging.WARNING)
+        alembic_logging.getLogger('alembic.runtime.migration').setLevel(alembic_logging.ERROR)
+        alembic_logging.getLogger('alembic.env').setLevel(alembic_logging.ERROR)
+        alembic_logging.getLogger('alembic').setLevel(alembic_logging.ERROR)
         
         alembic_ini_path = PROJECT_ROOT / "alembic.ini"
         
@@ -149,10 +152,12 @@ def _run_alembic_migrations():
         db_path = get_database_path()
         alembic_cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db_path}")
         
-        # Suppress Alembic output to stdout/stderr (in addition to logging)
-        alembic_cfg.set_main_option("output_encoding", "utf-8")
-        # Disable script_location to prevent file output
+        # Redirect Alembic output to null to prevent stdout/stderr pollution
         alembic_cfg.attributes['configure_logger'] = False
+        
+        # Get the script directory for revision checks
+        script = ScriptDirectory.from_config(alembic_cfg)
+        head_rev = script.get_current_head()
         
         # Fast pre-check: if current revision == head revision, skip migration
         engine = get_engine()
@@ -160,12 +165,10 @@ def _run_alembic_migrations():
             migration_context = MigrationContext.configure(conn)
             current_rev = migration_context.get_current_revision()
             
-            # Get the head revision from the migration scripts
-            script = ScriptDirectory.from_config(alembic_cfg)
-            head_rev = script.get_current_head()
+            logger.debug(f"Current database revision: {current_rev}, Head revision: {head_rev}")
             
             if current_rev == head_rev and current_rev is not None:
-                logger.debug(f"Database schema is up to date at revision {current_rev}, skipping migrations")
+                logger.debug(f"Database schema is up to date at revision {current_rev}")
                 return
             
             if current_rev is None:
@@ -173,9 +176,22 @@ def _run_alembic_migrations():
             else:
                 logger.info(f"Database needs migration: {current_rev} -> {head_rev}")
         
-        # Run migrations to head (latest)
+        # Run migrations to head (latest) - capture all output to prevent stderr pollution
         logger.info("Running database migrations...")
-        alembic_command.upgrade(alembic_cfg, "head")
+        
+        # Capture stdout and stderr during migration
+        old_stdout = sys.stdout
+        old_stderr = sys.stderr
+        sys.stdout = io.StringIO()
+        sys.stderr = io.StringIO()
+        
+        try:
+            alembic_command.upgrade(alembic_cfg, "head")
+        finally:
+            # Restore stdout/stderr
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
+        
         logger.info("Database migrations complete")
         
     except Exception as e:
