@@ -136,6 +136,7 @@ def _run_alembic_migrations():
         # This prevents INFO messages from going to stderr
         import logging as alembic_logging
         alembic_logging.getLogger('alembic.runtime.migration').setLevel(alembic_logging.ERROR)
+        alembic_logging.getLogger('alembic.runtime.plugins').setLevel(alembic_logging.ERROR)
         alembic_logging.getLogger('alembic.env').setLevel(alembic_logging.ERROR)
         alembic_logging.getLogger('alembic').setLevel(alembic_logging.ERROR)
         
@@ -176,36 +177,15 @@ def _run_alembic_migrations():
             else:
                 logger.info(f"Database needs migration: {current_rev} -> {head_rev}")
         
-        # Run migrations to head (latest) - capture all output to prevent stderr pollution
+        # Run migrations to head (latest)
+        # Don't capture output - the logger suppression is enough
         logger.info("Running database migrations...")
         
-        # Capture stdout and stderr during migration
-        old_stdout = sys.stdout
-        old_stderr = sys.stderr
-        stdout_capture = io.StringIO()
-        stderr_capture = io.StringIO()
-        sys.stdout = stdout_capture
-        sys.stderr = stderr_capture
-        
-        migration_error = None
         try:
             alembic_command.upgrade(alembic_cfg, "head")
         except Exception as e:
-            migration_error = e
-        finally:
-            # Restore stdout/stderr
-            sys.stdout = old_stdout
-            sys.stderr = old_stderr
-            
-            # Log captured output if there was an error
-            if migration_error:
-                stdout_text = stdout_capture.getvalue()
-                stderr_text = stderr_capture.getvalue()
-                if stdout_text:
-                    logger.error(f"Migration stdout: {stdout_text}")
-                if stderr_text:
-                    logger.error(f"Migration stderr: {stderr_text}")
-                raise migration_error
+            logger.error(f"Migration command failed: {e}", exc_info=True)
+            raise
         
         # Verify the migration succeeded by checking the revision
         with engine.begin() as conn:
