@@ -182,20 +182,43 @@ def _run_alembic_migrations():
         # Capture stdout and stderr during migration
         old_stdout = sys.stdout
         old_stderr = sys.stderr
-        sys.stdout = io.StringIO()
-        sys.stderr = io.StringIO()
+        stdout_capture = io.StringIO()
+        stderr_capture = io.StringIO()
+        sys.stdout = stdout_capture
+        sys.stderr = stderr_capture
         
+        migration_error = None
         try:
             alembic_command.upgrade(alembic_cfg, "head")
+        except Exception as e:
+            migration_error = e
         finally:
             # Restore stdout/stderr
             sys.stdout = old_stdout
             sys.stderr = old_stderr
+            
+            # Log captured output if there was an error
+            if migration_error:
+                stdout_text = stdout_capture.getvalue()
+                stderr_text = stderr_capture.getvalue()
+                if stdout_text:
+                    logger.error(f"Migration stdout: {stdout_text}")
+                if stderr_text:
+                    logger.error(f"Migration stderr: {stderr_text}")
+                raise migration_error
         
-        logger.info("Database migrations complete")
+        # Verify the migration succeeded by checking the revision
+        with engine.begin() as conn:
+            migration_context = MigrationContext.configure(conn)
+            new_rev = migration_context.get_current_revision()
+            
+            if new_rev == head_rev:
+                logger.info(f"Database migrations complete - now at revision {new_rev}")
+            else:
+                logger.warning(f"Migration ran but revision is {new_rev}, expected {head_rev}")
         
     except Exception as e:
-        logger.error(f"Failed to run database migrations: {e}")
+        logger.error(f"Failed to run database migrations: {e}", exc_info=True)
         logger.warning("Continuing with existing schema...")
 
 
