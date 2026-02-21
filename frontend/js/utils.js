@@ -55,7 +55,8 @@ const Utils = {
     formatDate(dateString, options = {}) {
         if (!dateString) return 'N/A';
         
-        const date = new Date(dateString);
+        const date = this.parseApiDate(dateString);
+        if (Number.isNaN(date.getTime())) return 'N/A';
         const defaultOptions = {
             year: 'numeric',
             month: 'short',
@@ -73,9 +74,10 @@ const Utils = {
     formatRelativeTime(dateString) {
         if (!dateString) return 'N/A';
         
-        const date = new Date(dateString);
+        const date = this.parseApiDate(dateString);
+        if (Number.isNaN(date.getTime())) return 'N/A';
         const now = new Date();
-        const diffMs = now - date;
+        const diffMs = Math.max(0, now - date);
         const diffSecs = Math.floor(diffMs / 1000);
         const diffMins = Math.floor(diffSecs / 60);
         const diffHours = Math.floor(diffMins / 60);
@@ -87,6 +89,20 @@ const Utils = {
         if (diffDays < 7) return `${diffDays}d ago`;
         
         return this.formatDate(dateString, { year: 'numeric', month: 'short', day: 'numeric' });
+    },
+
+    /**
+     * Parse API datetime safely.
+     * If timezone is missing, treat as UTC to match backend utcnow() timestamps.
+     */
+    parseApiDate(dateString) {
+        if (typeof dateString !== 'string') {
+            return new Date(dateString);
+        }
+        
+        const hasTimezone = /(?:Z|[+\-]\d{2}:\d{2})$/.test(dateString);
+        const normalized = hasTimezone ? dateString : `${dateString}Z`;
+        return new Date(normalized);
     },
     
     /**

@@ -1809,7 +1809,7 @@ Include: subject, gender, pose/action, clothing details, hair color/style, eye c
             // Show current version
             document.getElementById('captionHistoryCurrentText').textContent = data.caption.text || '--';
             document.getElementById('captionHistoryCurrentDate').textContent = data.caption.modified_date ? 
-                new Date(data.caption.modified_date).toLocaleString() : '--';
+                Utils.formatDate(data.caption.modified_date) : '--';
             document.getElementById('captionHistoryCurrentSource').textContent = data.caption.source || 'unknown';
             
             const modelEl = document.getElementById('captionHistoryCurrentModel');
@@ -1867,7 +1867,7 @@ Include: subject, gender, pose/action, clothing details, hair color/style, eye c
                                 <span class="badge bg-secondary">Version ${version.version_number}</span>
                                 ${version.operation ? `<span class="badge bg-info ms-1">${Utils.escapeHtml(version.operation)}</span>` : ''}
                             </div>
-                            <small class="text-muted">${new Date(version.created_date).toLocaleString()}</small>
+                            <small class="text-muted">${Utils.formatDate(version.created_date)}</small>
                         </div>
                         ${version.operation_description ? `
                             <div class="small text-muted mb-2">
